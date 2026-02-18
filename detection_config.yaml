@@ -1,0 +1,128 @@
+# =============================================================================
+# B++ DETECTION CONFIGURATION
+# =============================================================================
+# This config controls motion-based insect detection parameters.
+# All values shown are defaults - modify as needed for your use case.
+#
+# Usage:
+#   results = inference(..., config="detection_config.yaml")
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# GMM BACKGROUND SUBTRACTOR PARAMETERS
+# -----------------------------------------------------------------------------
+# Controls the Gaussian Mixture Model for motion detection
+
+# Number of frames to build background model
+# Higher = more stable background, slower adaptation to lighting changes
+gmm_history: 500
+
+# Variance threshold for foreground detection
+# Higher = less sensitive, fewer false positives from noise
+gmm_var_threshold: 16
+
+# -----------------------------------------------------------------------------
+# MORPHOLOGICAL FILTERING
+# -----------------------------------------------------------------------------
+# Noise removal after motion detection
+
+# Size of the morphological kernel (NxN ellipse)
+# Larger = removes more noise but may lose small detections
+morph_kernel_size: 3
+
+# -----------------------------------------------------------------------------
+# COHESIVENESS PARAMETERS
+# -----------------------------------------------------------------------------
+# These filter scattered motion (wind-blown plants) vs compact motion (insects)
+
+# Min ratio of largest blob to total motion area in detection region
+# Higher = stricter, rejects fragmented detections
+min_largest_blob_ratio: 0.80
+
+# Max number of separate blobs allowed in a detection region
+# Lower = stricter, rejects scattered motion
+max_num_blobs: 5
+
+# Min ratio of motion pixels to bounding box area
+# Higher = requires more filled bounding box
+min_motion_ratio: 0.15
+
+# -----------------------------------------------------------------------------
+# SHAPE PARAMETERS
+# -----------------------------------------------------------------------------
+# Filter detections by contour geometry
+
+# Min contour area in pixels² (rejects noise/tiny detections)
+min_area: 200
+
+# Max contour area in pixels² (rejects large moving objects)
+max_area: 40000
+
+# Min area/perimeter ratio (rejects thin/elongated shapes)
+min_density: 3.0
+
+# Min convex hull fill ratio (rejects irregular/fragmented shapes)
+# 1.0 = perfectly convex, lower = more irregular allowed
+min_solidity: 0.55
+
+# -----------------------------------------------------------------------------
+# TRACKING PARAMETERS
+# -----------------------------------------------------------------------------
+# Control how detections are linked into tracks
+
+# Min NET displacement in pixels for track confirmation
+# Filters stationary false positives
+min_displacement: 50
+
+# Min path points required before topology analysis
+min_path_points: 10
+
+# Max allowed jump between consecutive frames (pixels)
+# Larger = more tolerant of fast movement, but may link separate objects
+max_frame_jump: 100
+
+# How many frames to remember a lost track before deleting
+# Helps re-link tracks after brief occlusions (e.g., 45 frames @ 30fps = 1.5s)
+max_lost_frames: 45
+
+# Max allowed area change ratio between frames
+# Prevents linking very different sized detections
+max_area_change_ratio: 3.0
+
+# -----------------------------------------------------------------------------
+# TRACKER MATCHING PARAMETERS
+# -----------------------------------------------------------------------------
+# Hungarian algorithm cost function weights
+
+# Weight for distance cost (0-1)
+# Higher = position matters more for matching
+tracker_w_dist: 0.6
+
+# Weight for area cost (0-1)
+# Higher = size similarity matters more for matching
+tracker_w_area: 0.4
+
+# Maximum cost for valid track-detection match (0-1)
+# Lower = stricter matching, more new tracks created
+tracker_cost_threshold: 0.3
+
+# -----------------------------------------------------------------------------
+# PATH TOPOLOGY PARAMETERS
+# -----------------------------------------------------------------------------
+# Confirm insect-like movement patterns vs random/stationary motion
+
+# Max ratio of revisited positions (insects explore new areas)
+# Lower = stricter, requires more exploration
+max_revisit_ratio: 0.30
+
+# Min forward progression ratio (insects move purposefully)
+# Higher = stricter, requires more directional movement
+min_progression_ratio: 0.70
+
+# Max directional variance (insects maintain relatively consistent heading)
+# Lower = stricter, requires more consistent direction
+max_directional_variance: 0.90
+
+# Radius in pixels for determining if a position is "revisited"
+# Smaller = stricter definition of revisiting
+revisit_radius: 50

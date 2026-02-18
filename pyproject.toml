@@ -1,0 +1,50 @@
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "bugspot"
+version = "0.1.0"
+description = "Lightweight insect detection and tracking using motion-based detection"
+readme = "README.md"
+license = "MIT"
+authors = [
+    "Orlando Closs <closs@mit.edu>",
+]
+keywords = [
+    "insect-detection",
+    "motion-detection",
+    "tracking",
+    "computer-vision",
+    "background-subtraction",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+]
+packages = [{include = "bugspot", from = "src"}]
+
+[tool.poetry.dependencies]
+python = ">=3.10"
+numpy = ">=1.20"
+opencv-python = ">=4.0"
+pyyaml = ">=6.0"
+scipy = ">=1.7"
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=7.0"
+
+[tool.poetry.scripts]
+bugspot = "bugspot.__main__:main"
+
+[tool.poetry.urls]
+Homepage = "https://github.com/orlandocloss/bugspot"
+Repository = "https://github.com/orlandocloss/bugspot"
+"B++" = "https://github.com/Tvenver/Bplusplus"
+"Sensing Garden" = "https://github.com/MIT-Senseable-City-Lab/sensing-garden"
