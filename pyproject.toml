@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "bugspot"
-version = "0.1.0"
+version = "0.1.1"
 description = "Lightweight insect detection and tracking using motion-based detection"
 readme = "README.md"
 license = "MIT"

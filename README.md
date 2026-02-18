@@ -1,6 +1,10 @@
 # BugSpot
 
-Lightweight insect detection and tracking using motion-based GMM background subtraction, Hungarian algorithm tracking, and path topology analysis. Core library for [B++](https://github.com/Tvenver/Bplusplus) (on-device classification) and [Sensing Garden](https://github.com/MIT-Senseable-City-Lab/sensing-garden) (edge deployment).
+[![PyPI](https://img.shields.io/pypi/v/bugspot)](https://pypi.org/project/bugspot/)
+[![Python](https://img.shields.io/pypi/pyversions/bugspot)](https://pypi.org/project/bugspot/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+Lightweight insect detection and tracking using motion-based GMM background subtraction, Hungarian algorithm tracking, and path topology analysis. Core library for [B++](https://github.com/Tvenver/Bplusplus) and [Sensing Garden](https://github.com/MIT-Senseable-City-Lab/sensing-garden).
 
 **No ML framework dependencies** — only requires OpenCV, NumPy, and SciPy.
 
@@ -8,12 +12,6 @@ Lightweight insect detection and tracking using motion-based GMM background subt
 
 ```bash
 pip install bugspot
-```
-
-Or from source:
-
-```bash
-pip install -e .
 ```
 
 ## Quick Start
