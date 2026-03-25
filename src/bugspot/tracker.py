@@ -69,6 +69,7 @@ class InsectTracker:
         image_height: int,
         image_width: int,
         max_lost_frames: int = 45,
+        max_frame_jump: Optional[int] = None,
         w_dist: float = 0.6,
         w_area: float = 0.4,
         cost_threshold: float = 0.3,
@@ -77,6 +78,7 @@ class InsectTracker:
         self.image_width = image_width
         self.max_dist = np.sqrt(image_height ** 2 + image_width ** 2)
         self.max_lost_frames = max_lost_frames
+        self.max_frame_jump = max_frame_jump
         self.w_dist = w_dist
         self.w_area = w_area
         self.cost_threshold = cost_threshold
@@ -123,7 +125,6 @@ class InsectTracker:
             self.current_tracks = new_boxes
             return track_ids
 
-        # Hungarian assignment
         cost_matrix, n_prev, n_curr = self._build_cost_matrix(all_previous, new_boxes)
         row_idx, col_idx = linear_sum_assignment(cost_matrix)
 
@@ -187,7 +188,10 @@ class InsectTracker:
     def _cost(self, b1: BoundingBox, b2: BoundingBox) -> float:
         cx1, cy1 = b1.center()
         cx2, cy2 = b2.center()
-        norm_dist = np.sqrt((cx2 - cx1) ** 2 + (cy2 - cy1) ** 2) / self.max_dist
+        dist = np.sqrt((cx2 - cx1) ** 2 + (cy2 - cy1) ** 2)
+        if self.max_frame_jump is not None and dist > self.max_frame_jump:
+            return 999.0
+        norm_dist = dist / self.max_dist
         min_a, max_a = min(b1.area, b2.area), max(b1.area, b2.area)
         area_cost = 1 - (min_a / max_a if max_a > 0 else 1.0)
         return norm_dist * self.w_dist + area_cost * self.w_area

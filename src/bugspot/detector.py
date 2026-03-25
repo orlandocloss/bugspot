@@ -266,7 +266,7 @@ def calculate_directional_variance(path: np.ndarray) -> float:
 
 def analyze_path_topology(path, params: Dict) -> Tuple[bool, Dict]:
     """Analyze path for insect-like movement. Returns (passes, metrics)."""
-    if len(path) < 3:
+    if len(path) < params.get("min_path_points", 10):
         return False, {}
 
     path_arr = np.array(path)

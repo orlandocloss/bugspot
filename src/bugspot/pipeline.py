@@ -93,6 +93,7 @@ class DetectionPipeline:
 
         # Per-video state
         self.all_detections: List[Dict] = []
+        self._track_detections: Dict[str, List[Dict]] = defaultdict(list)
         self.track_paths: Dict[str, List[Tuple[float, float]]] = defaultdict(list)
         self.track_areas: Dict[str, List[float]] = defaultdict(list)
 
@@ -143,6 +144,7 @@ class DetectionPipeline:
                 image_height=height,
                 image_width=width,
                 max_lost_frames=self.config.get("max_lost_frames", 45),
+                max_frame_jump=self.config.get("max_frame_jump"),
                 w_dist=self.config.get("tracker_w_dist", 0.6),
                 w_area=self.config.get("tracker_w_area", 0.4),
                 cost_threshold=self.config.get("tracker_cost_threshold", 0.3),
@@ -172,7 +174,9 @@ class DetectionPipeline:
                 cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
                 area = (x2 - x1) * (y2 - y1)
 
-                # Track consistency check
+                # Per-frame consistency check: ignore this frame if it
+                # jumps too far or changes size too drastically.
+                # The track keeps its last good position as reference.
                 if self.track_paths[track_id]:
                     prev_pos = self.track_paths[track_id][-1]
                     prev_area = self.track_areas[track_id][-1] if self.track_areas[track_id] else area
@@ -181,13 +185,12 @@ class DetectionPipeline:
                         self.config["max_frame_jump"],
                         self.config.get("max_area_change_ratio", 3.0),
                     ):
-                        self.track_paths[track_id] = []
-                        self.track_areas[track_id] = []
+                        continue
 
                 self.track_paths[track_id].append((cx, cy))
                 self.track_areas[track_id].append(area)
 
-                self.all_detections.append({
+                self._track_detections[track_id].append({
                     "timestamp": datetime.now().isoformat(),
                     "frame_number": frame_num,
                     "frame_time_seconds": frame_time,
@@ -204,6 +207,10 @@ class DetectionPipeline:
             frame_num += 1
 
         cap.release()
+
+        self.all_detections = [
+            d for dets in self._track_detections.values() for d in dets
+        ]
 
         # =====================================================================
         # PHASE 2: Topology Analysis
@@ -393,13 +400,16 @@ class DetectionPipeline:
         for tid, comp in composites.items():
             img = np.clip(comp, 0, 255).astype(np.uint8)
 
-            # Start/end markers
-            path = self.track_paths.get(tid, [])
-            if len(path) > 1:
-                sx, sy = int(path[0][0]), int(path[0][1])
-                ex, ey = int(path[-1][0]), int(path[-1][1])
-                cv2.circle(img, (sx, sy), 6, (0, 255, 0), -1)
-                cv2.circle(img, (ex, ey), 6, (0, 0, 255), -1)
+            # Path overlay and start marker (derived from the detections
+            # actually rendered, so it matches even across consistency resets)
+            det_path = []
+            for det in track_frames[tid]:
+                bx = det["bbox"]
+                det_path.append((int((bx[0] + bx[2]) / 2), int((bx[1] + bx[3]) / 2)))
+            if len(det_path) > 1:
+                pts = np.array(det_path, dtype=np.int32)
+                cv2.polylines(img, [pts], isClosed=False, color=(0, 0, 255), thickness=2)
+                cv2.circle(img, (pts[0][0], pts[0][1]), 6, (0, 255, 0), -1)
 
             n_dets = len(track_frames[tid])
             cv2.putText(img, f"{n_dets} detections", (10, 25),
@@ -419,11 +429,13 @@ class DetectionPipeline:
     def clear(self) -> None:
         """Clear per-video detections. Keeps tracker state for continuous operation."""
         self.all_detections = []
+        self._track_detections = defaultdict(list)
         self._detector.reset()
 
     def reset(self) -> None:
         """Full reset — clear everything including tracker."""
         self.all_detections = []
+        self._track_detections = defaultdict(list)
         self.track_paths = defaultdict(list)
         self.track_areas = defaultdict(list)
         self._detector.reset()
