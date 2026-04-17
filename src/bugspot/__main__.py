@@ -103,10 +103,11 @@ def main() -> None:
     print()
 
     for track_id, track in result.confirmed_tracks.items():
+        # net_displacement is resolved to pixels by the pipeline.
         print(f"  Track {track_id[:8]}  "
               f"{track.num_detections} detections, "
               f"{track.duration:.1f}s, "
-              f"displacement={track.topology_metrics.get('net_displacement', 0):.0f}px")
+              f"displacement={track.topology_metrics.get('net_displacement', 0):.0f} px")
 
     if not result.confirmed_tracks:
         print("  (no confirmed insect tracks)")

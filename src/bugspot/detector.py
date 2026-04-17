@@ -4,13 +4,27 @@ Motion-based insect detection.
 Provides GMM background subtraction with shape and cohesiveness
 filters to identify insects, plus path topology analysis.
 
+Pixel-scale detection parameters are expressed as FRACTIONS of the input
+image dimensions (not absolute pixels). This makes configs portable
+across resolutions. At runtime, call ``resolve_detection_params`` with
+the actual frame width and height to convert fractions into absolute
+pixel values that the detector/tracker internals consume.
+
+Reference dimensions used by ``resolve_detection_params``:
+    * Lengths → fraction of image width W
+    * Areas   → fraction of image area W * H
+
 Dependencies: opencv, numpy (no ML frameworks)
 """
 
+import logging
 import cv2
 import numpy as np
 from dataclasses import dataclass
 from typing import List, Tuple, Dict, Optional
+
+
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -29,29 +43,32 @@ class Detection:
 # DEFAULT CONFIGURATION
 # =============================================================================
 
+# Pixel-scale keys (areas and lengths) are stored as FRACTIONS of image
+# dimensions here and in YAML configs. They are converted to absolute
+# pixels once the frame size is known via ``resolve_detection_params``.
 DEFAULT_DETECTION_CONFIG = {
     # GMM Background Subtractor
     "gmm_history": 500,
     "gmm_var_threshold": 16,
 
-    # Morphological filtering
-    "morph_kernel_size": 3,
+    # Morphological filtering — fraction of image width
+    "morph_kernel_size": 0.002,
 
     # Cohesiveness
     "min_largest_blob_ratio": 0.80,
     "max_num_blobs": 5,
     "min_motion_ratio": 0.15,
 
-    # Shape
-    "min_area": 200,
-    "max_area": 40000,
+    # Shape — fractions of image area (min/max) and raw ratio (density, solidity)
+    "min_area": 0.0002,
+    "max_area": 0.035,
     "min_density": 3.0,
     "min_solidity": 0.55,
 
-    # Tracking
-    "min_displacement": 50,
+    # Tracking — fractions of image width (displacement, frame jump)
+    "min_displacement": 0.05,
     "min_path_points": 10,
-    "max_frame_jump": 100,
+    "max_frame_jump": 0.1,
     "max_lost_frames": 45,
     "max_area_change_ratio": 3.0,
 
@@ -60,16 +77,27 @@ DEFAULT_DETECTION_CONFIG = {
     "tracker_w_area": 0.4,
     "tracker_cost_threshold": 0.3,
 
-    # Path topology
+    # Path topology — fraction of image width (revisit_radius)
     "max_revisit_ratio": 0.30,
     "min_progression_ratio": 0.70,
     "max_directional_variance": 0.90,
-    "revisit_radius": 50,
+    "revisit_radius": 0.05,
 }
 
 
+# Keys whose config values are FRACTIONS that need resolving to pixels.
+_AREA_FRACTION_KEYS = ("min_area", "max_area")
+_LENGTH_FRACTION_KEYS = (
+    "min_displacement",
+    "max_frame_jump",
+    "revisit_radius",
+    "morph_kernel_size",
+)
+_INTEGER_LENGTH_KEYS = ("morph_kernel_size",)  # must be odd positive integer
+
+
 def get_default_config() -> Dict:
-    """Return a copy of the default detection configuration."""
+    """Return a copy of the default detection configuration (fractions)."""
     return DEFAULT_DETECTION_CONFIG.copy()
 
 
@@ -82,6 +110,69 @@ def build_detection_params(**kwargs) -> Dict:
         else:
             raise ValueError(f"Unknown detection parameter: {key}")
     return params
+
+
+def resolve_detection_params(
+    params: Dict, image_width: int, image_height: int
+) -> Dict:
+    """
+    Resolve fraction-based config values into absolute pixel values.
+
+    Returns a new dict where the pixel-scale keys (``min_area``,
+    ``max_area``, ``min_displacement``, ``max_frame_jump``,
+    ``revisit_radius``, ``morph_kernel_size``) hold resolved pixel
+    values, while ``{key}_frac`` companions preserve the original
+    fractions for record/logging. The dict also records
+    ``_image_width``, ``_image_height``, and ``_image_area`` for
+    downstream use.
+
+    Area keys multiply the fraction by image area (W * H).
+    Length keys multiply the fraction by image width W.
+    ``morph_kernel_size`` is additionally rounded to the nearest odd
+    positive integer (required by OpenCV morphology).
+
+    A WARNING is emitted for any fraction > 1.0 — this very likely
+    indicates an old-style config with absolute pixels.
+    """
+    image_area = image_width * image_height
+
+    resolved = dict(params)
+
+    for key in _AREA_FRACTION_KEYS:
+        if key in resolved and resolved[key] is not None:
+            frac = float(resolved[key])
+            if frac > 1.0:
+                logger.warning(
+                    "%s=%s looks like an absolute pixel value (>1.0); "
+                    "expected a fraction of image area. Treating as fraction.",
+                    key, frac,
+                )
+            resolved[f"{key}_frac"] = frac
+            resolved[key] = frac * image_area
+
+    for key in _LENGTH_FRACTION_KEYS:
+        if key in resolved and resolved[key] is not None:
+            frac = float(resolved[key])
+            if frac > 1.0:
+                logger.warning(
+                    "%s=%s looks like an absolute pixel value (>1.0); "
+                    "expected a fraction of image width. Treating as fraction.",
+                    key, frac,
+                )
+            resolved[f"{key}_frac"] = frac
+            if key in _INTEGER_LENGTH_KEYS:
+                k_px = max(1, int(round(frac * image_width)))
+                if k_px % 2 == 0:
+                    k_px += 1
+                resolved[key] = k_px
+            else:
+                resolved[key] = frac * image_width
+
+    resolved["_image_width"] = image_width
+    resolved["_image_height"] = image_height
+    resolved["_image_area"] = image_area
+
+    return resolved
 
 
 # =============================================================================

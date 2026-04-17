@@ -21,6 +21,7 @@ from .detector import (
     analyze_path_topology,
     check_track_consistency,
     get_default_config,
+    resolve_detection_params,
 )
 from .tracker import InsectTracker
 
@@ -83,12 +84,18 @@ class DetectionPipeline:
     def __init__(self, config: Optional[Dict] = None):
         """
         Args:
-            config: Detection parameters dict. None = use defaults.
+            config: Detection parameters dict, with pixel-scale values as
+                FRACTIONS of image dimensions (see detector module docstring).
+                Resolved to absolute pixels on the first ``process_video``
+                call when the input frame size is known. None = defaults.
         """
-        self.config = config or get_default_config()
+        # Raw (fraction-style) config as provided by the caller.
+        self._raw_config = config or get_default_config()
+        # Resolved (pixel-style) config — populated on first process_video.
+        self.config: Dict = dict(self._raw_config)
 
-        # Components
-        self._detector = MotionDetector(self.config)
+        # Components — lazily created once frame size is known.
+        self._detector: Optional[MotionDetector] = None
         self._tracker: Optional[InsectTracker] = None
 
         # Per-video state
@@ -137,6 +144,13 @@ class DetectionPipeline:
             "height": height,
             "duration": total_frames / input_fps if input_fps > 0 else 0,
         }
+
+        # Resolve fraction-based config once we know the frame size, and
+        # (re)build the detector. The resolved config is what every
+        # downstream component (detector, tracker, topology analysis,
+        # consistency check) sees — in absolute pixel units.
+        self.config = resolve_detection_params(self._raw_config, width, height)
+        self._detector = MotionDetector(self.config)
 
         # Initialise tracker on first call (or if frame size changed)
         if self._tracker is None:
@@ -430,14 +444,15 @@ class DetectionPipeline:
         """Clear per-video detections. Keeps tracker state for continuous operation."""
         self.all_detections = []
         self._track_detections = defaultdict(list)
-        self._detector.reset()
+        if self._detector is not None:
+            self._detector.reset()
 
     def reset(self) -> None:
-        """Full reset — clear everything including tracker."""
+        """Full reset — clear everything including tracker and detector."""
         self.all_detections = []
         self._track_detections = defaultdict(list)
         self.track_paths = defaultdict(list)
         self.track_areas = defaultdict(list)
-        self._detector.reset()
+        self._detector = None
         self._tracker = None
 

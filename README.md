@@ -95,34 +95,43 @@ pipeline.reset()  # Full reset — clear everything including tracker
 
 See [`detection_config.yaml`](detection_config.yaml) for all parameters with descriptions.
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| **GMM** | | |
-| `gmm_history` | 500 | Frames to build background model |
-| `gmm_var_threshold` | 16 | Foreground variance threshold |
-| **Morphological** | | |
-| `morph_kernel_size` | 3 | Kernel size (NxN) |
-| **Cohesiveness** | | |
-| `min_largest_blob_ratio` | 0.80 | Min largest blob / total motion |
-| `max_num_blobs` | 5 | Max blobs in detection |
-| `min_motion_ratio` | 0.15 | Min motion pixels / bbox area |
-| **Shape** | | |
-| `min_area` | 200 | Min contour area (px²) |
-| `max_area` | 40000 | Max contour area (px²) |
-| `min_density` | 3.0 | Min area/perimeter ratio |
-| `min_solidity` | 0.55 | Min convex hull fill ratio |
-| **Tracking** | | |
-| `min_displacement` | 50 | Min net movement (px) |
-| `min_path_points` | 10 | Min points for topology |
-| `max_frame_jump` | 100 | Max jump between frames (px) |
-| `max_lost_frames` | 45 | Frames before track deleted |
-| `max_area_change_ratio` | 3.0 | Max area change ratio |
-| **Tracker Matching** | | |
-| `tracker_w_dist` | 0.6 | Distance weight (0-1) |
-| `tracker_w_area` | 0.4 | Area weight (0-1) |
-| `tracker_cost_threshold` | 0.3 | Max cost for match |
-| **Topology** | | |
-| `max_revisit_ratio` | 0.30 | Max revisited positions |
-| `min_progression_ratio` | 0.70 | Min forward progression |
-| `max_directional_variance` | 0.90 | Max heading variance |
-| `revisit_radius` | 50 | Revisit radius (px) |
+### Resolution-independent units
+
+Every pixel-scale parameter is expressed as a **fraction of the image dimensions**, not as absolute pixels, so the same config works across resolutions. Two reference dimensions are used:
+
+- **Length** → fraction of image width `W` (keys: `morph_kernel_size`, `min_displacement`, `max_frame_jump`, `revisit_radius`)
+- **Area**   → fraction of image area `W * H` (keys: `min_area`, `max_area`)
+
+Fractions are resolved to absolute pixels at runtime via `resolve_detection_params(params, W, H)` once the frame size is known. The `1080 px` column below shows the resolved pixel value for a 1080×1080 frame (width = 1080, area = 1 166 400) for intuition.
+
+| Parameter | Default | 1080 px wide | Description |
+|-----------|---------|--------------|-------------|
+| **GMM** | | | |
+| `gmm_history` | 500 | — | Frames to build background model |
+| `gmm_var_threshold` | 16 | — | Foreground variance threshold |
+| **Morphological** | | | |
+| `morph_kernel_size` | 0.002 | 3 | Kernel size, fraction of image width (rounded to odd int) |
+| **Cohesiveness** | | | |
+| `min_largest_blob_ratio` | 0.80 | — | Min largest blob / total motion |
+| `max_num_blobs` | 5 | — | Max blobs in detection |
+| `min_motion_ratio` | 0.15 | — | Min motion pixels / bbox area |
+| **Shape** | | | |
+| `min_area` | 0.0002 | ~233 px² | Min contour area, fraction of image area |
+| `max_area` | 0.035 | ~40 824 px² | Max contour area, fraction of image area |
+| `min_density` | 3.0 | — | Min area/perimeter ratio (unitless) |
+| `min_solidity` | 0.55 | — | Min convex hull fill ratio |
+| **Tracking** | | | |
+| `min_displacement` | 0.05 | 54 px | Min net movement, fraction of image width |
+| `min_path_points` | 10 | — | Min points for topology |
+| `max_frame_jump` | 0.1 | 108 px | Max jump between frames, fraction of image width |
+| `max_lost_frames` | 45 | — | Frames before track deleted |
+| `max_area_change_ratio` | 3.0 | — | Max area change ratio |
+| **Tracker Matching** | | | |
+| `tracker_w_dist` | 0.6 | — | Distance weight (0-1) |
+| `tracker_w_area` | 0.4 | — | Area weight (0-1) |
+| `tracker_cost_threshold` | 0.3 | — | Max cost for match |
+| **Topology** | | | |
+| `max_revisit_ratio` | 0.30 | — | Max revisited positions |
+| `min_progression_ratio` | 0.70 | — | Min forward progression |
+| `max_directional_variance` | 0.90 | — | Max heading variance |
+| `revisit_radius` | 0.05 | 54 px | Revisit radius, fraction of image width |
