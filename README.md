@@ -97,12 +97,12 @@ See [`detection_config.yaml`](detection_config.yaml) for all parameters with des
 
 ### Resolution-independent units
 
-Every pixel-scale parameter is expressed as a **fraction of the image dimensions**, not as absolute pixels, so the same config works across resolutions. Two reference dimensions are used:
+Scene-scale pixel parameters are expressed as **fractions of image dimensions**, not as absolute pixels, so the same config works across resolutions. Two reference dimensions are used:
 
-- **Length** → fraction of image width `W` (keys: `morph_kernel_size`, `min_displacement`, `max_frame_jump`, `revisit_radius`)
+- **Length** → fraction of image width `W` (keys: `min_displacement`, `max_frame_jump`, `revisit_radius`)
 - **Area**   → fraction of image area `W * H` (keys: `min_area`, `max_area`)
 
-Fractions are resolved to absolute pixels at runtime via `resolve_detection_params(params, W, H)` once the frame size is known. The `1080 px` column below shows the resolved pixel value for a 1080×1080 frame (width = 1080, area = 1 166 400) for intuition.
+Fractions are resolved to absolute pixels at runtime via `resolve_detection_params(params, W, H)` once the frame size is known. The `1080 px` column below shows the resolved pixel value for a 1080×1080 frame (width = 1080, area = 1 166 400) for intuition. `morph_kernel_size` is an exception — it stays in absolute NxN pixels since it targets sensor-level noise, not scene-scale features.
 
 | Parameter | Default | 1080 px wide | Description |
 |-----------|---------|--------------|-------------|
@@ -110,7 +110,7 @@ Fractions are resolved to absolute pixels at runtime via `resolve_detection_para
 | `gmm_history` | 500 | — | Frames to build background model |
 | `gmm_var_threshold` | 16 | — | Foreground variance threshold |
 | **Morphological** | | | |
-| `morph_kernel_size` | 0.002 | 3 | Kernel size, fraction of image width (rounded to odd int) |
+| `morph_kernel_size` | 3 | 3 | Kernel size (NxN), absolute pixels |
 | **Cohesiveness** | | | |
 | `min_largest_blob_ratio` | 0.80 | — | Min largest blob / total motion |
 | `max_num_blobs` | 5 | — | Max blobs in detection |

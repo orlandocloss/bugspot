@@ -6,13 +6,12 @@
 #
 # RESOLUTION-INDEPENDENT UNITS
 # ----------------------------
-# Every pixel-scale parameter below is given as a FRACTION of the input
+# Scene-scale pixel parameters below are given as FRACTIONS of the input
 # image dimensions, not as absolute pixels. This makes a single config
 # work across any resolution. Two reference dimensions are used:
 #
 #   * Length-based -> fraction of image width W
-#         Keys:  morph_kernel_size, min_displacement, max_frame_jump,
-#                revisit_radius
+#         Keys:  min_displacement, max_frame_jump, revisit_radius
 #   * Area-based   -> fraction of image area (W * H)
 #         Keys:  min_area, max_area
 #
@@ -20,6 +19,9 @@
 # frame (1080 x 1080, area = 1,166,400 px^2):
 #   min_area: 0.0002        ->   ~233 px^2
 #   min_displacement: 0.05  ->    54  px
+#
+# `morph_kernel_size` is an exception: it is a local noise-removal
+# kernel and stays in absolute pixels (NxN) regardless of resolution.
 #
 # Usage:
 #   results = inference(..., config="detection_config.yaml")
@@ -43,11 +45,11 @@ gmm_var_threshold: 16
 # -----------------------------------------------------------------------------
 # Noise removal after motion detection
 
-# Size of the morphological kernel, as a FRACTION of image width.
-# Rounded to the nearest odd positive integer at runtime.
-# 0.002 on a 1080 px wide frame ~= 3 px kernel.
+# Size of the morphological kernel in pixels (NxN ellipse).
+# This is an absolute pixel count, NOT a fraction of image width — the
+# kernel targets sensor-level noise, not scene-scale features.
 # Larger = removes more noise but may lose small detections.
-morph_kernel_size: 0.002
+morph_kernel_size: 3
 
 # -----------------------------------------------------------------------------
 # COHESIVENESS PARAMETERS

@@ -14,6 +14,10 @@ Reference dimensions used by ``resolve_detection_params``:
     * Lengths → fraction of image width W
     * Areas   → fraction of image area W * H
 
+``morph_kernel_size`` is an exception: it stays in absolute NxN pixels
+(default 3) since it is a local noise-removal kernel, not a scene-scale
+quantity.
+
 Dependencies: opencv, numpy (no ML frameworks)
 """
 
@@ -51,8 +55,8 @@ DEFAULT_DETECTION_CONFIG = {
     "gmm_history": 500,
     "gmm_var_threshold": 16,
 
-    # Morphological filtering — fraction of image width
-    "morph_kernel_size": 0.002,
+    # Morphological filtering — absolute kernel size in pixels (NxN)
+    "morph_kernel_size": 3,
 
     # Cohesiveness
     "min_largest_blob_ratio": 0.80,
@@ -86,14 +90,14 @@ DEFAULT_DETECTION_CONFIG = {
 
 
 # Keys whose config values are FRACTIONS that need resolving to pixels.
+# ``morph_kernel_size`` is intentionally NOT a fraction — it is a local
+# noise-removal kernel and is configured as an absolute NxN pixel size.
 _AREA_FRACTION_KEYS = ("min_area", "max_area")
 _LENGTH_FRACTION_KEYS = (
     "min_displacement",
     "max_frame_jump",
     "revisit_radius",
-    "morph_kernel_size",
 )
-_INTEGER_LENGTH_KEYS = ("morph_kernel_size",)  # must be odd positive integer
 
 
 def get_default_config() -> Dict:
@@ -120,16 +124,17 @@ def resolve_detection_params(
 
     Returns a new dict where the pixel-scale keys (``min_area``,
     ``max_area``, ``min_displacement``, ``max_frame_jump``,
-    ``revisit_radius``, ``morph_kernel_size``) hold resolved pixel
-    values, while ``{key}_frac`` companions preserve the original
-    fractions for record/logging. The dict also records
-    ``_image_width``, ``_image_height``, and ``_image_area`` for
-    downstream use.
+    ``revisit_radius``) hold resolved pixel values, while
+    ``{key}_frac`` companions preserve the original fractions for
+    record/logging. The dict also records ``_image_width``,
+    ``_image_height``, and ``_image_area`` for downstream use.
 
     Area keys multiply the fraction by image area (W * H).
     Length keys multiply the fraction by image width W.
-    ``morph_kernel_size`` is additionally rounded to the nearest odd
-    positive integer (required by OpenCV morphology).
+
+    ``morph_kernel_size`` is intentionally *not* resolved — it is a
+    local noise-removal kernel configured as an absolute NxN pixel
+    size (default 3) and is passed through as-is.
 
     A WARNING is emitted for any fraction > 1.0 — this very likely
     indicates an old-style config with absolute pixels.
@@ -160,13 +165,7 @@ def resolve_detection_params(
                     key, frac,
                 )
             resolved[f"{key}_frac"] = frac
-            if key in _INTEGER_LENGTH_KEYS:
-                k_px = max(1, int(round(frac * image_width)))
-                if k_px % 2 == 0:
-                    k_px += 1
-                resolved[key] = k_px
-            else:
-                resolved[key] = frac * image_width
+            resolved[key] = frac * image_width
 
     resolved["_image_width"] = image_width
     resolved["_image_height"] = image_height
