@@ -16,6 +16,9 @@ from .detector import (
     is_cohesive_blob,
     passes_shape_filters,
     analyze_path_topology,
+    calculate_revisit_ratio,
+    calculate_progression_ratio,
+    calculate_directional_variance,
     check_track_consistency,
 )
 from .tracker import (
@@ -39,6 +42,9 @@ __all__ = [
     "is_cohesive_blob",
     "passes_shape_filters",
     "analyze_path_topology",
+    "calculate_revisit_ratio",
+    "calculate_progression_ratio",
+    "calculate_directional_variance",
     "check_track_consistency",
     # Tracker
     "BoundingBox",
