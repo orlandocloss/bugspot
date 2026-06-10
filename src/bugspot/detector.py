@@ -86,6 +86,12 @@ DEFAULT_DETECTION_CONFIG = {
     "min_progression_ratio": 0.70,
     "max_directional_variance": 0.90,
     "revisit_radius": 0.05,
+
+    # Detection resolution — explicit (width, height) in pixels to run the
+    # detector at. Detection runs on frames resized to this resolution for
+    # speed while bounding boxes are scaled back to native resolution, so
+    # tracking, crops, and composites stay full-res. None = native resolution.
+    "detection_resolution": None,
 }
 
 

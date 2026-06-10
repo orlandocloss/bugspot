@@ -104,6 +104,10 @@ Scene-scale pixel parameters are expressed as **fractions of image dimensions**,
 
 Fractions are resolved to absolute pixels at runtime via `resolve_detection_params(params, W, H)` once the frame size is known. The `1080 px` column below shows the resolved pixel value for a 1080×1080 frame (width = 1080, area = 1 166 400) for intuition. `morph_kernel_size` is an exception — it stays in absolute NxN pixels since it targets sensor-level noise, not scene-scale features.
 
+### Faster detection on downscaled frames
+
+Set `detection_resolution` to a `[width, height]` pixel pair to run detection (the most expensive stage) on frames resized to that resolution. Bounding boxes are scaled back to native resolution before tracking, so **crops and composites stay full-resolution** — only the GMM/morphology/contour work gets cheaper. Because the fraction-based thresholds are resolved at the detection resolution, and `min_density` (a length-dimensioned ratio) is scaled internally by the downscale factor, the same physical objects still pass the shape filters. `null` (the default) detects at native resolution.
+
 | Parameter | Default | 1080 px wide | Description |
 |-----------|---------|--------------|-------------|
 | **GMM** | | | |
@@ -111,6 +115,8 @@ Fractions are resolved to absolute pixels at runtime via `resolve_detection_para
 | `gmm_var_threshold` | 16 | — | Foreground variance threshold |
 | **Morphological** | | | |
 | `morph_kernel_size` | 3 | 3 | Kernel size (NxN), absolute pixels |
+| **Detection resolution** | | | |
+| `detection_resolution` | null | — | `[W, H]` (px) to run the detector at; null = native |
 | **Cohesiveness** | | | |
 | `min_largest_blob_ratio` | 0.80 | — | Min largest blob / total motion |
 | `max_num_blobs` | 5 | — | Max blobs in detection |
