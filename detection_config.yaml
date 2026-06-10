@@ -63,9 +63,25 @@ morph_kernel_size: 3
 # Example: [960, 540] detects a 3840x2160 frame at 960x540 (~16x fewer pixels).
 #
 # Because detection params are fraction-based, area/length thresholds adapt
-# automatically; min_density (a length-dimensioned ratio) is scaled internally
-# by the downscale factor so the same physical objects still pass.
-detection_resolution: [1080, 1080]
+# automatically; morph_kernel_size and min_density (absolute-pixel/length
+# params) are scaled internally from reference_resolution (below) to the
+# detection resolution so the same physical objects still pass.
+detection_resolution: null
+
+# -----------------------------------------------------------------------------
+# REFERENCE RESOLUTION (CONFIG PORTABILITY)
+# -----------------------------------------------------------------------------
+# Explicit [width, height] (in pixels) that the absolute-pixel params
+# (morph_kernel_size) and length-dimensioned ratio (min_density) were TUNED for.
+# Those two values are auto-scaled from this reference to the resolution
+# detection actually runs at, so a config tuned for one resolution works at any
+# native or detection resolution without re-tuning by hand.
+#
+# null (or omit) = treat the native video resolution as the reference (i.e. the
+# absolute params are used as written at native res).
+# Example: [3840, 2160] means "this config was tuned for 4K"; running on a
+# native 1080p video then auto-scales morph_kernel_size/min_density to 1080p.
+reference_resolution: null
 
 # -----------------------------------------------------------------------------
 # COHESIVENESS PARAMETERS

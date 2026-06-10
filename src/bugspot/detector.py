@@ -92,6 +92,13 @@ DEFAULT_DETECTION_CONFIG = {
     # speed while bounding boxes are scaled back to native resolution, so
     # tracking, crops, and composites stay full-res. None = native resolution.
     "detection_resolution": None,
+
+    # Reference resolution — explicit (width, height) in pixels the
+    # absolute-pixel params (``morph_kernel_size``, ``min_density``) were tuned
+    # for. They are auto-scaled from this to the actual detection resolution,
+    # so a config authored for, say, 4K behaves correctly at any native or
+    # detection resolution. None = treat the native frame size as the reference.
+    "reference_resolution": None,
 }
 
 
@@ -278,16 +285,25 @@ class ScaledDetector:
         * Detector params are resolved at the DETECTION resolution so the
           fraction-based area/length thresholds match the frames it sees.
         * Two length-dimensioned absolute-pixel params that
-          ``resolve_detection_params`` does not touch are scaled by the linear
-          downscale factor (geometric mean of the x/y factors):
-            - ``morph_kernel_size`` — otherwise a fixed kernel acts
-              ~1/scale larger on the smaller frame and MORPH_CLOSE-merges
-              scattered motion into compact blobs (false positives);
+          ``resolve_detection_params`` does not touch (``morph_kernel_size`` and
+          ``min_density``) are scaled from the REFERENCE resolution to the
+          DETECTION resolution by the geometric mean of the x/y factors:
+            - ``morph_kernel_size`` — otherwise a fixed kernel is the wrong
+              size for the frame and MORPH_CLOSE-merges scattered motion into
+              compact blobs (false positives);
             - ``min_density`` (area / perimeter) — otherwise real objects,
-              whose density drops ~linearly with scale, get rejected.
+              whose density scales ~linearly with resolution, get rejected.
           Dimensionless filters (``min_solidity``, ``min_largest_blob_ratio``,
           ``min_motion_ratio``, ``max_num_blobs``) are scale-invariant and are
           left unchanged.
+
+        ``reference_resolution`` (a ``(width, height)`` pair) declares the
+        resolution the absolute-pixel params were authored for. It defaults to
+        the NATIVE frame size, so:
+            - unset + no downscale  -> no change (params used as written);
+            - unset + downscale     -> params scaled native -> detection;
+            - set (e.g. 4K) + any native/detection -> params scaled
+              reference -> detection, so a "4K config" works at any resolution.
 
     The detector is created at construction; pass the NATIVE frame size.
     """
@@ -309,14 +325,30 @@ class ScaledDetector:
         self.scale_x = native_width / det_width
         self.scale_y = native_height / det_height
 
-        params = resolve_detection_params(config, det_width, det_height)
-        if self.downscaled:
-            linear_scale = (det_width / native_width * det_height / native_height) ** 0.5
-            kernel = params.get("morph_kernel_size", 3)
-            params["morph_kernel_size"] = max(1, int(round(kernel * linear_scale)))
-            if params.get("min_density"):
-                params["min_density"] = params["min_density"] * linear_scale
+        # The reference resolution the absolute-pixel params were authored for.
+        # Defaults to native, which preserves the no-reference behaviour.
+        ref_resolution = config.get("reference_resolution")
+        if ref_resolution:
+            ref_width = max(1, int(ref_resolution[0]))
+            ref_height = max(1, int(ref_resolution[1]))
+        else:
+            ref_width, ref_height = native_width, native_height
+        self.reference_width = ref_width
+        self.reference_height = ref_height
 
+        params = resolve_detection_params(config, det_width, det_height)
+
+        # Scale the length-dimensioned absolute-pixel params from the reference
+        # resolution to the detection resolution (geometric mean of x/y handles
+        # non-uniform aspect). When detection == reference this is a no-op.
+        length_scale = (det_width / ref_width * det_height / ref_height) ** 0.5
+        if length_scale != 1.0:
+            kernel = params.get("morph_kernel_size", 3)
+            params["morph_kernel_size"] = max(1, int(round(kernel * length_scale)))
+            if params.get("min_density"):
+                params["min_density"] = params["min_density"] * length_scale
+
+        self.length_scale = length_scale
         self.params = params
         self.detector = MotionDetector(params)
 

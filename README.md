@@ -106,7 +106,11 @@ Fractions are resolved to absolute pixels at runtime via `resolve_detection_para
 
 ### Faster detection on downscaled frames
 
-Set `detection_resolution` to a `[width, height]` pixel pair to run detection (the most expensive stage) on frames resized to that resolution. Bounding boxes are scaled back to native resolution before tracking, so **crops and composites stay full-resolution** — only the GMM/morphology/contour work gets cheaper. The fraction-based thresholds are resolved at the detection resolution, and the two length-dimensioned absolute-pixel params (`morph_kernel_size` and `min_density`) are scaled internally by the downscale factor so the same physical objects still pass the shape filters. `null` (the default) detects at native resolution.
+Set `detection_resolution` to a `[width, height]` pixel pair to run detection (the most expensive stage) on frames resized to that resolution. Bounding boxes are scaled back to native resolution before tracking, so **crops and composites stay full-resolution** — only the GMM/morphology/contour work gets cheaper. The fraction-based thresholds are resolved at the detection resolution, and the two length-dimensioned absolute-pixel params (`morph_kernel_size` and `min_density`) are scaled internally so the same physical objects still pass the shape filters. `null` (the default) detects at native resolution.
+
+### Portable configs across resolutions (`reference_resolution`)
+
+`morph_kernel_size` and `min_density` are the only params expressed in absolute pixels / length, so unlike the fraction-based thresholds they don't auto-adapt when the resolution changes. Set `reference_resolution` to the `[width, height]` your config was tuned for (e.g. `[3840, 2160]` for a 4K config) and those two values are auto-scaled from that reference to whatever resolution detection actually runs at. So a 4K-tuned config "just works" on a native 1080p video, and it composes with `detection_resolution` (the scale always targets the detection resolution). `null` (the default) treats the native frame size as the reference, preserving prior behaviour.
 
 This whole policy lives in the reusable `ScaledDetector` class, so callers that build their own frame loop (instead of using `DetectionPipeline`) get identical behaviour:
 
@@ -126,6 +130,7 @@ bboxes_native, fg_mask = det.detect(frame, frame_number)  # bboxes already in na
 | `morph_kernel_size` | 3 | 3 | Kernel size (NxN), absolute pixels |
 | **Detection resolution** | | | |
 | `detection_resolution` | null | — | `[W, H]` (px) to run the detector at; null = native |
+| `reference_resolution` | null | — | `[W, H]` (px) the config was tuned for; auto-scales `morph_kernel_size`/`min_density`; null = native |
 | **Cohesiveness** | | | |
 | `min_largest_blob_ratio` | 0.80 | — | Min largest blob / total motion |
 | `max_num_blobs` | 5 | — | Max blobs in detection |
