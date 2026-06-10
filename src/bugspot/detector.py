@@ -259,6 +259,104 @@ class MotionDetector:
 
 
 # =============================================================================
+# SCALED DETECTOR (optional downscaled detection)
+# =============================================================================
+
+class ScaledDetector:
+    """
+    A ``MotionDetector`` that optionally runs detection at a lower resolution
+    for speed, returning bounding boxes mapped back to native pixels.
+
+    This is the single place that owns the detection-resolution policy so that
+    every consumer (the ``DetectionPipeline`` here, plus external callers that
+    build their own frame loop, e.g. bplusplus) behaves identically.
+
+    Behaviour:
+        * If ``detection_resolution`` (a ``(width, height)`` pair) is set in the
+          config, frames are resized to it before detection and detection
+          bounding boxes are scaled back to native resolution.
+        * Detector params are resolved at the DETECTION resolution so the
+          fraction-based area/length thresholds match the frames it sees.
+        * Two length-dimensioned absolute-pixel params that
+          ``resolve_detection_params`` does not touch are scaled by the linear
+          downscale factor (geometric mean of the x/y factors):
+            - ``morph_kernel_size`` — otherwise a fixed kernel acts
+              ~1/scale larger on the smaller frame and MORPH_CLOSE-merges
+              scattered motion into compact blobs (false positives);
+            - ``min_density`` (area / perimeter) — otherwise real objects,
+              whose density drops ~linearly with scale, get rejected.
+          Dimensionless filters (``min_solidity``, ``min_largest_blob_ratio``,
+          ``min_motion_ratio``, ``max_num_blobs``) are scale-invariant and are
+          left unchanged.
+
+    The detector is created at construction; pass the NATIVE frame size.
+    """
+
+    def __init__(self, config: Dict, native_width: int, native_height: int):
+        det_resolution = config.get("detection_resolution")
+        det_width, det_height = native_width, native_height
+        if det_resolution:
+            det_width = max(1, int(det_resolution[0]))
+            det_height = max(1, int(det_resolution[1]))
+
+        self.native_width = native_width
+        self.native_height = native_height
+        self.det_width = det_width
+        self.det_height = det_height
+        self.downscaled = (det_width, det_height) != (native_width, native_height)
+        # Scale factors map detection-space coords back up to native pixels.
+        # x and y are independent so non-matching aspect ratios are handled.
+        self.scale_x = native_width / det_width
+        self.scale_y = native_height / det_height
+
+        params = resolve_detection_params(config, det_width, det_height)
+        if self.downscaled:
+            linear_scale = (det_width / native_width * det_height / native_height) ** 0.5
+            kernel = params.get("morph_kernel_size", 3)
+            params["morph_kernel_size"] = max(1, int(round(kernel * linear_scale)))
+            if params.get("min_density"):
+                params["min_density"] = params["min_density"] * linear_scale
+
+        self.params = params
+        self.detector = MotionDetector(params)
+
+    def detect(self, frame: np.ndarray, frame_number: int = 0) -> Tuple[List[Tuple[int, int, int, int]], np.ndarray]:
+        """
+        Detect on ``frame`` (native resolution), optionally downscaling first.
+
+        Returns ``(bboxes_native, fg_mask)`` where each bbox is an
+        ``(x1, y1, x2, y2)`` tuple in NATIVE pixel coordinates. ``fg_mask`` is
+        the detection-resolution foreground mask (diagnostic only).
+        """
+        if self.downscaled:
+            detect_frame = cv2.resize(
+                frame, (self.det_width, self.det_height), interpolation=cv2.INTER_AREA
+            )
+        else:
+            detect_frame = frame
+
+        detections, fg_mask = self.detector.detect(detect_frame, frame_number)
+
+        bboxes: List[Tuple[int, int, int, int]] = []
+        for det in detections:
+            dx1, dy1, dx2, dy2 = det.bbox
+            if self.downscaled:
+                nx1 = max(0, min(int(round(dx1 * self.scale_x)), self.native_width))
+                ny1 = max(0, min(int(round(dy1 * self.scale_y)), self.native_height))
+                nx2 = max(0, min(int(round(dx2 * self.scale_x)), self.native_width))
+                ny2 = max(0, min(int(round(dy2 * self.scale_y)), self.native_height))
+            else:
+                nx1, ny1, nx2, ny2 = dx1, dy1, dx2, dy2
+            bboxes.append((nx1, ny1, nx2, ny2))
+
+        return bboxes, fg_mask
+
+    def reset(self) -> None:
+        """Reset the underlying background model."""
+        self.detector.reset()
+
+
+# =============================================================================
 # SHAPE AND COHESIVENESS FILTERS
 # =============================================================================
 

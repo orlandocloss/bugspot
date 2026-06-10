@@ -65,7 +65,7 @@ morph_kernel_size: 3
 # Because detection params are fraction-based, area/length thresholds adapt
 # automatically; min_density (a length-dimensioned ratio) is scaled internally
 # by the downscale factor so the same physical objects still pass.
-detection_resolution: null
+detection_resolution: [1080, 1080]
 
 # -----------------------------------------------------------------------------
 # COHESIVENESS PARAMETERS

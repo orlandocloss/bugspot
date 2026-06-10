@@ -106,7 +106,16 @@ Fractions are resolved to absolute pixels at runtime via `resolve_detection_para
 
 ### Faster detection on downscaled frames
 
-Set `detection_resolution` to a `[width, height]` pixel pair to run detection (the most expensive stage) on frames resized to that resolution. Bounding boxes are scaled back to native resolution before tracking, so **crops and composites stay full-resolution** — only the GMM/morphology/contour work gets cheaper. Because the fraction-based thresholds are resolved at the detection resolution, and `min_density` (a length-dimensioned ratio) is scaled internally by the downscale factor, the same physical objects still pass the shape filters. `null` (the default) detects at native resolution.
+Set `detection_resolution` to a `[width, height]` pixel pair to run detection (the most expensive stage) on frames resized to that resolution. Bounding boxes are scaled back to native resolution before tracking, so **crops and composites stay full-resolution** — only the GMM/morphology/contour work gets cheaper. The fraction-based thresholds are resolved at the detection resolution, and the two length-dimensioned absolute-pixel params (`morph_kernel_size` and `min_density`) are scaled internally by the downscale factor so the same physical objects still pass the shape filters. `null` (the default) detects at native resolution.
+
+This whole policy lives in the reusable `ScaledDetector` class, so callers that build their own frame loop (instead of using `DetectionPipeline`) get identical behaviour:
+
+```python
+from bugspot import ScaledDetector
+
+det = ScaledDetector(config, native_width, native_height)
+bboxes_native, fg_mask = det.detect(frame, frame_number)  # bboxes already in native px
+```
 
 | Parameter | Default | 1080 px wide | Description |
 |-----------|---------|--------------|-------------|

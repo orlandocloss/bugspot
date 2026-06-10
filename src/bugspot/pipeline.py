@@ -16,7 +16,7 @@ from collections import defaultdict
 from datetime import datetime
 
 from .detector import (
-    MotionDetector,
+    ScaledDetector,
     Detection,
     analyze_path_topology,
     check_track_consistency,
@@ -95,7 +95,7 @@ class DetectionPipeline:
         self.config: Dict = dict(self._raw_config)
 
         # Components — lazily created once frame size is known.
-        self._detector: Optional[MotionDetector] = None
+        self._scaled: Optional[ScaledDetector] = None
         self._tracker: Optional[InsectTracker] = None
 
         # Per-video state
@@ -158,41 +158,13 @@ class DetectionPipeline:
         # what tracking, topology analysis, and the consistency check see.
         self.config = resolve_detection_params(self._raw_config, width, height)
 
-        # Optionally run detection at an explicit lower resolution for speed.
-        # ``detection_resolution`` is a (width, height) pixel pair; each frame
-        # is resized to it before detection, while bounding boxes are scaled
-        # back to native resolution before tracking — so crops and composites
-        # are still extracted at full resolution. None = detect at native.
-        detection_resolution = self._raw_config.get("detection_resolution")
-        det_width, det_height = width, height
-        if detection_resolution:
-            det_width = max(1, int(detection_resolution[0]))
-            det_height = max(1, int(detection_resolution[1]))
-
-        detection_downscaled = (det_width, det_height) != (width, height)
-        # Scale factors map detection-space coords back up to native pixels.
-        # x and y are independent, so non-matching aspect ratios are handled.
-        scale_x = width / det_width
-        scale_y = height / det_height
-
-        video_info["detection_width"] = det_width
-        video_info["detection_height"] = det_height
-
-        # Resolve the detector's params at the DETECTION resolution so that the
-        # fraction-based area/length thresholds match the frames it actually
-        # sees (which may be a different resolution).
-        detector_config = resolve_detection_params(self._raw_config, det_width, det_height)
-
-        # ``min_density`` (contour area / perimeter) is a length-dimensioned
-        # quantity that ``resolve_detection_params`` does not scale. When
-        # detecting at a lower resolution, a given blob's density shrinks with
-        # the linear scale, so the threshold must shrink too. Use the geometric
-        # mean of the x/y factors to handle non-uniform resizing.
-        if detection_downscaled and detector_config.get("min_density"):
-            density_scale = (det_width / width * det_height / height) ** 0.5
-            detector_config["min_density"] = detector_config["min_density"] * density_scale
-
-        self._detector = MotionDetector(detector_config)
+        # Build the (optionally downscaled) detector. ScaledDetector owns the
+        # whole detection-resolution policy — resizing, param scaling, and
+        # mapping bounding boxes back to native pixels — so every consumer
+        # behaves identically. See ``detection_resolution`` in the config.
+        self._scaled = ScaledDetector(self._raw_config, width, height)
+        video_info["detection_width"] = self._scaled.det_width
+        video_info["detection_height"] = self._scaled.det_height
 
         # Initialise tracker on first call (or if frame size changed)
         if self._tracker is None:
@@ -217,29 +189,8 @@ class DetectionPipeline:
 
             frame_time = frame_num / input_fps if input_fps > 0 else 0
 
-            if detection_downscaled:
-                detect_frame = cv2.resize(
-                    frame, (det_width, det_height), interpolation=cv2.INTER_AREA
-                )
-            else:
-                detect_frame = frame
-
-            detections, _ = self._detector.detect(detect_frame, frame_num)
-
-            # Scale detection bboxes back to native resolution so that all
-            # downstream stages (tracking, crops, composites) operate on the
-            # full-resolution frame coordinates.
-            bboxes = []
-            for det in detections:
-                dx1, dy1, dx2, dy2 = det.bbox
-                if detection_downscaled:
-                    nx1 = max(0, min(int(round(dx1 * scale_x)), width))
-                    ny1 = max(0, min(int(round(dy1 * scale_y)), height))
-                    nx2 = max(0, min(int(round(dx2 * scale_x)), width))
-                    ny2 = max(0, min(int(round(dy2 * scale_y)), height))
-                else:
-                    nx1, ny1, nx2, ny2 = dx1, dy1, dx2, dy2
-                bboxes.append((nx1, ny1, nx2, ny2))
+            # ScaledDetector returns bboxes already mapped to native pixels.
+            bboxes, _ = self._scaled.detect(frame, frame_num)
 
             track_ids = self._tracker.update(bboxes, frame_num)
 
@@ -508,8 +459,8 @@ class DetectionPipeline:
         """Clear per-video detections. Keeps tracker state for continuous operation."""
         self.all_detections = []
         self._track_detections = defaultdict(list)
-        if self._detector is not None:
-            self._detector.reset()
+        if self._scaled is not None:
+            self._scaled.reset()
 
     def reset(self) -> None:
         """Full reset — clear everything including tracker and detector."""
@@ -517,6 +468,6 @@ class DetectionPipeline:
         self._track_detections = defaultdict(list)
         self.track_paths = defaultdict(list)
         self.track_areas = defaultdict(list)
-        self._detector = None
+        self._scaled = None
         self._tracker = None
 

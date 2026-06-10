@@ -10,6 +10,7 @@ Dependencies: opencv, numpy, scipy
 from .detector import (
     Detection,
     MotionDetector,
+    ScaledDetector,
     DEFAULT_DETECTION_CONFIG,
     get_default_config,
     build_detection_params,
@@ -37,6 +38,7 @@ __all__ = [
     # Detector
     "Detection",
     "MotionDetector",
+    "ScaledDetector",
     "DEFAULT_DETECTION_CONFIG",
     "get_default_config",
     "build_detection_params",
