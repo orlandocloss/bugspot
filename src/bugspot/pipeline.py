@@ -166,6 +166,10 @@ class DetectionPipeline:
         video_info["detection_width"] = self._scaled.det_width
         video_info["detection_height"] = self._scaled.det_height
 
+        # Chronic-motion suppression (pre-tracker box filtering) lives inside
+        # ScaledDetector, so it applies uniformly to every consumer; nothing
+        # extra is needed here.
+
         # Initialise tracker on first call (or if frame size changed)
         if self._tracker is None:
             self._tracker = InsectTracker(
@@ -189,7 +193,9 @@ class DetectionPipeline:
 
             frame_time = frame_num / input_fps if input_fps > 0 else 0
 
-            # ScaledDetector returns bboxes already mapped to native pixels.
+            # ScaledDetector returns bboxes already mapped to native pixels and,
+            # when chronic-motion suppression is enabled, already filtered of
+            # chronic-region detections BEFORE they reach the tracker.
             bboxes, _ = self._scaled.detect(frame, frame_num)
 
             track_ids = self._tracker.update(bboxes, frame_num)

@@ -87,6 +87,22 @@ DEFAULT_DETECTION_CONFIG = {
     "max_directional_variance": 0.90,
     "revisit_radius": 0.05,
 
+    # Chronic-motion spatial prior (fixed-camera detection filter).
+    # Accumulates a per-pixel motion-frequency map over the clip; pixels that
+    # move in at least `chronic_motion_threshold` of frames are "chronic"
+    # (wind-blown vegetation, rippling water, etc.). A detection whose bounding
+    # box overlaps chronic pixels by more than `max_chronic_overlap` (fraction
+    # of bbox area) is dropped BEFORE tracking, cutting clutter and speeding up
+    # tracking. Insects are transient visitors, so they rarely sit on
+    # chronically-moving pixels. Default off preserves behaviour.
+    "chronic_motion_suppression": False,
+    "chronic_motion_threshold": 0.30,
+    "max_chronic_overlap": 0.50,
+    # Frames to accumulate before the chronic map is trusted enough to drop
+    # detections. During warmup the map still accumulates but no boxes are
+    # dropped, avoiding cold-start over-suppression when frequencies are noisy.
+    "chronic_motion_warmup_frames": 30,
+
     # Detection resolution — explicit (width, height) in pixels to run the
     # detector at. Detection runs on frames resized to this resolution for
     # speed while bounding boxes are scaled back to native resolution, so
@@ -352,6 +368,18 @@ class ScaledDetector:
         self.params = params
         self.detector = MotionDetector(params)
 
+        # Chronic-motion spatial prior (fixed-camera FP suppression). Lives
+        # here so EVERY consumer that calls detect() — including callers that
+        # run their own tracking loop (e.g. bplusplus) — gets chronic boxes
+        # dropped BEFORE their tracker. Off by default = unchanged behaviour.
+        self.chronic_enabled = bool(config.get("chronic_motion_suppression", False))
+        self.chronic_threshold = float(config.get("chronic_motion_threshold", 0.30))
+        self.max_chronic_overlap = float(config.get("max_chronic_overlap", 0.50))
+        self.chronic_warmup = int(config.get("chronic_motion_warmup_frames", 30))
+        self.chronic_map: Optional["ChronicMotionMap"] = (
+            ChronicMotionMap(det_width, det_height) if self.chronic_enabled else None
+        )
+
     def detect(self, frame: np.ndarray, frame_number: int = 0) -> Tuple[List[Tuple[int, int, int, int]], np.ndarray]:
         """
         Detect on ``frame`` (native resolution), optionally downscaling first.
@@ -359,6 +387,11 @@ class ScaledDetector:
         Returns ``(bboxes_native, fg_mask)`` where each bbox is an
         ``(x1, y1, x2, y2)`` tuple in NATIVE pixel coordinates. ``fg_mask`` is
         the detection-resolution foreground mask (diagnostic only).
+
+        When chronic-motion suppression is enabled, the running motion map is
+        updated from this frame and detections sitting on chronically-moving
+        pixels are removed from the returned list (after a warmup period), so
+        clutter never reaches the caller's tracker.
         """
         if self.downscaled:
             detect_frame = cv2.resize(
@@ -381,11 +414,121 @@ class ScaledDetector:
                 nx1, ny1, nx2, ny2 = dx1, dy1, dx2, dy2
             bboxes.append((nx1, ny1, nx2, ny2))
 
+        if self.chronic_map is not None:
+            # Accumulate first so the current frame counts, then drop chronic
+            # detections (skipped during warmup while frequencies are noisy).
+            self.chronic_map.update(fg_mask)
+            if self.chronic_map.frames >= self.chronic_warmup:
+                bboxes = [
+                    b for b in bboxes
+                    if self.chronic_overlap_native(b) <= self.max_chronic_overlap
+                ]
+
         return bboxes, fg_mask
 
+    def chronic_overlap_native(self, bbox_native: Tuple[int, int, int, int]) -> float:
+        """
+        Fraction of a NATIVE-pixel bbox that sits on chronically-moving pixels.
+
+        Maps the box into detection-resolution coordinates (where the chronic
+        map lives) and queries it. Returns 0.0 when chronic tracking is off.
+        """
+        if self.chronic_map is None:
+            return 0.0
+        x1, y1, x2, y2 = bbox_native
+        inv_x = 1.0 / self.scale_x  # native -> detection
+        inv_y = 1.0 / self.scale_y
+        det_box = (x1 * inv_x, y1 * inv_y, x2 * inv_x, y2 * inv_y)
+        return self.chronic_map.overlap_ratio(det_box, self.chronic_threshold)
+
     def reset(self) -> None:
-        """Reset the underlying background model."""
+        """Reset the underlying background model (and chronic map if present)."""
         self.detector.reset()
+        if self.chronic_map is not None:
+            self.chronic_map = ChronicMotionMap(self.det_width, self.det_height)
+
+
+# =============================================================================
+# CHRONIC-MOTION SPATIAL PRIOR (fixed-camera false-positive suppression)
+# =============================================================================
+
+class ChronicMotionMap:
+    """
+    Accumulates a per-pixel motion-frequency map over a clip and answers
+    "how chronically does this region move?" queries.
+
+    Motivation: on a FIXED camera, wind-blown vegetation, rippling water and
+    similar clutter move in the *same image regions* throughout the clip,
+    whereas a real insect is a transient visitor that passes through a region
+    once. Suppressing detections that sit on chronically-moving pixels removes
+    a large class of false positives without any per-object tuning.
+
+    The map is accumulated at whatever resolution the foreground masks are
+    produced at (i.e. the DETECTION resolution when downscaling is used), so
+    bounding boxes must be mapped into that space before querying. The map is
+    resolution-agnostic otherwise.
+
+    Usage:
+        cmap = ChronicMotionMap(mask_width, mask_height)
+        for frame:
+            _, fg_mask = detector.detect(frame)
+            cmap.update(fg_mask)
+        ratio = cmap.overlap_ratio(bbox, threshold)  # 0..1
+    """
+
+    def __init__(self, width: int, height: int):
+        self.width = int(width)
+        self.height = int(height)
+        # uint32 counts: number of frames each pixel was foreground.
+        self._counts = np.zeros((self.height, self.width), dtype=np.uint32)
+        self._frames = 0
+
+    @property
+    def frames(self) -> int:
+        return self._frames
+
+    def update(self, fg_mask: np.ndarray) -> None:
+        """Accumulate one foreground mask (non-zero = motion)."""
+        if fg_mask is None:
+            return
+        if fg_mask.shape[:2] != (self.height, self.width):
+            fg_mask = cv2.resize(
+                fg_mask, (self.width, self.height), interpolation=cv2.INTER_NEAREST
+            )
+        self._counts += (fg_mask > 0).astype(np.uint32)
+        self._frames += 1
+
+    def frequency(self) -> np.ndarray:
+        """Per-pixel motion frequency in [0, 1] (fraction of frames in motion)."""
+        if self._frames == 0:
+            return np.zeros((self.height, self.width), dtype=np.float32)
+        return self._counts.astype(np.float32) / float(self._frames)
+
+    def chronic_mask(self, threshold: float = 0.30) -> np.ndarray:
+        """Boolean map of pixels that move in >= ``threshold`` of frames."""
+        return self.frequency() >= float(threshold)
+
+    def overlap_ratio(
+        self, bbox: Tuple[int, int, int, int], threshold: float = 0.30
+    ) -> float:
+        """
+        Fraction of ``bbox`` (in map coordinates) covered by chronic pixels.
+
+        Returns 0.0 when there is no data or the box is empty/out of bounds.
+        """
+        if self._frames == 0:
+            return 0.0
+        x1, y1, x2, y2 = (int(round(v)) for v in bbox)
+        x1 = max(0, min(x1, self.width))
+        x2 = max(0, min(x2, self.width))
+        y1 = max(0, min(y1, self.height))
+        y2 = max(0, min(y2, self.height))
+        if x2 <= x1 or y2 <= y1:
+            return 0.0
+        region_freq = self.frequency()[y1:y2, x1:x2]
+        if region_freq.size == 0:
+            return 0.0
+        return float(np.mean(region_freq >= float(threshold)))
 
 
 # =============================================================================

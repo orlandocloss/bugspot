@@ -121,6 +121,18 @@ det = ScaledDetector(config, native_width, native_height)
 bboxes_native, fg_mask = det.detect(frame, frame_number)  # bboxes already in native px
 ```
 
+### Chronic-motion suppression (fixed cameras)
+
+On a fixed camera, wind-blown vegetation and rippling water move in the *same image regions* all clip long, while real insects only pass through briefly. `chronic_motion_suppression` (default **off**) accumulates a per-pixel motion-frequency map and **drops detections that sit on chronically-moving pixels before they reach the tracker** — cutting clutter and speeding up tracking.
+
+This lives in **`ScaledDetector`**, so every consumer benefits — including those that run their own tracking loop (e.g. bplusplus) — not just `DetectionPipeline`. Tuned via `chronic_motion_threshold`, `max_chronic_overlap`, and `chronic_motion_warmup_frames`. The reusable `ChronicMotionMap` is also exported for fully custom loops.
+
+```python
+from bugspot import ChronicMotionMap  # accumulate fg-masks, query bbox overlap
+```
+
+> Note: chronic suppression only targets motion that recurs *in place*. A false positive that *travels* through clean regions (a bird, debris) won't be caught by it.
+
 | Parameter | Default | 1080 px wide | Description |
 |-----------|---------|--------------|-------------|
 | **GMM** | | | |
@@ -155,3 +167,8 @@ bboxes_native, fg_mask = det.detect(frame, frame_number)  # bboxes already in na
 | `min_progression_ratio` | 0.70 | — | Min forward progression |
 | `max_directional_variance` | 0.90 | — | Max heading variance |
 | `revisit_radius` | 0.05 | 54 px | Revisit radius, fraction of image width |
+| **Chronic-motion suppression** | | | |
+| `chronic_motion_suppression` | false | — | Drop chronic-pixel detections before tracking (fixed camera) |
+| `chronic_motion_threshold` | 0.30 | — | Motion-frequency for a pixel to count as "chronic" |
+| `max_chronic_overlap` | 0.50 | — | Drop detection when bbox chronic overlap exceeds this |
+| `chronic_motion_warmup_frames` | 30 | — | Frames to accumulate before chronic filtering starts |
